@@ -1,5 +1,8 @@
 node_modules/
 .pnpm-store/
+.electron-cache/
+.electron-builder-cache/
+.tmp/
 dist/
 out/
 release/
