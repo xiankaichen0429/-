@@ -1,0 +1,32 @@
+{
+  "name": "paper-librarian",
+  "version": "0.1.0",
+  "description": "个人论文文献管理桌面应用",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "electron .",
+    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "dist": "vite build && electron-builder"
+  },
+  "keywords": [
+    "paper",
+    "reference",
+    "citation",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "vite": "^5.4.11",
+    "wait-on": "^8.0.1"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+release/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.DS_Store
+*.log
+backend/data/
+backend/__pycache__/
