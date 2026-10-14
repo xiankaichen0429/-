@@ -38,12 +38,25 @@ npm install
 npm run dev
 ```
 
+也可以使用 pnpm：
+
+```bash
+pnpm install
+pnpm run dev
+```
+
 ### 桌面窗口
 
 需要先启动前端开发服务器，再运行 Electron：
 
 ```bash
 npm run electron:dev
+```
+
+或：
+
+```bash
+pnpm run electron:dev
 ```
 
 ### 打包 Windows 安装包
