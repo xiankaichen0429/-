@@ -40,6 +40,12 @@
       "electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "backend/extract.py",
+        "to": "backend/extract.py"
+      }
+    ],
     "win": {
       "target": "nsis",
       "signAndEditExecutable": false

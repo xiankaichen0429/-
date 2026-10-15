@@ -15,3 +15,6 @@ venv/
 *.log
 backend/data/
 backend/__pycache__/
+backend/build/
+backend/dist/
+*.spec

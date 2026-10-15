@@ -20,6 +20,8 @@ const showForm = ref(false)
 const showBasket = ref(false)
 const editingId = ref(null)
 const basket = ref([])
+const isImporting = ref(false)
+const fileInput = ref(null)
 
 const emptyForm = {
   title: '',
@@ -126,6 +128,76 @@ function cycleStatus(paper) {
   save()
 }
 
+function baseName(filePath) {
+  return String(filePath).split(/[\\/]/).pop() || filePath
+}
+
+async function importFiles() {
+  if (isImporting.value) return
+
+  if (window.desktop?.selectFiles) {
+    isImporting.value = true
+    try {
+      const files = await window.desktop.selectFiles()
+      for (const file of files) {
+        await addFileByPath(file)
+      }
+    } catch (error) {
+      alert(`导入失败：${error.message || error}`)
+    } finally {
+      isImporting.value = false
+    }
+    return
+  }
+
+  fileInput.value?.click()
+}
+
+async function addFileByPath(filePath) {
+  const fallback = {
+    title: baseName(filePath).replace(/\.(pdf|docx)$/i, ''),
+    authors: '',
+    year: '',
+    journal: '',
+    volume: '',
+    issue: '',
+    pages: '',
+    doi: '',
+    confidence: 'none'
+  }
+
+  let metadata = fallback
+  try {
+    if (window.desktop?.extractMetadata) {
+      metadata = await window.desktop.extractMetadata(filePath)
+    }
+  } catch {
+    metadata = fallback
+  }
+
+  papers.value.unshift({
+    id: newId(),
+    title: metadata.title || fallback.title,
+    authors: Array.isArray(metadata.authors)
+      ? metadata.authors.join(', ')
+      : metadata.authors || '',
+    year: metadata.year || '',
+    journal: metadata.journal || '',
+    volume: metadata.volume || '',
+    issue: metadata.issue || '',
+    pages: metadata.pages || '',
+    doi: metadata.doi || '',
+    status: 'unread',
+    notes: '',
+    fileName: baseName(filePath),
+    filePath,
+    confidence: metadata.confidence || 'none',
+    createdAt: new Date().toISOString()
+  })
+
+  save()
+}
+
 function onImport(event) {
   const files = Array.from(event.target.files || [])
   for (const file of files) {
@@ -142,6 +214,7 @@ function onImport(event) {
       status: 'unread',
       notes: '',
       fileName: file.name,
+      confidence: 'none',
       createdAt: new Date().toISOString()
     })
   }
@@ -264,10 +337,17 @@ watch(papers, save, { deep: true })
     <section class="content">
       <header class="toolbar">
         <input v-model="query" type="search" placeholder="搜索标题、作者、年份、期刊" />
-        <label class="file-button">
-          导入 PDF
-          <input type="file" accept=".pdf" multiple @change="onImport" />
-        </label>
+        <button class="primary" :disabled="isImporting" @click="importFiles">
+          {{ isImporting ? '识别中…' : '导入 PDF / Word' }}
+        </button>
+        <input
+          ref="fileInput"
+          class="hidden-input"
+          type="file"
+          accept=".pdf,.docx"
+          multiple
+          @change="onImport"
+        />
       </header>
 
       <div class="paper-list">
@@ -482,6 +562,10 @@ button,
 button.primary {
   background: #2563eb;
   color: #fff;
+}
+
+.hidden-input {
+  display: none;
 }
 
 .file-button {
