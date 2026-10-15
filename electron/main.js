@@ -59,15 +59,15 @@ ipcMain.handle('extract-paper-metadata', async (_event, filePath) => {
       }
     })
 
-    let stdout = ''
-    let stderr = ''
+    let stdout = Buffer.alloc(0)
+    let stderr = Buffer.alloc(0)
 
     child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString()
+      stdout = Buffer.concat([stdout, chunk])
     })
 
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString()
+      stderr = Buffer.concat([stderr, chunk])
     })
 
     child.on('error', reject)
@@ -75,12 +75,12 @@ ipcMain.handle('extract-paper-metadata', async (_event, filePath) => {
     child.on('close', (code) => {
       if (code === 0) {
         try {
-          resolve(JSON.parse(stdout))
+          resolve(JSON.parse(stdout.toString('utf8')))
         } catch {
           reject(new Error('无法解析识别结果'))
         }
       } else {
-        reject(new Error(stderr || `识别进程退出码：${code}`))
+        reject(new Error(stderr.toString('utf8') || `识别进程退出码：${code}`))
       }
     })
   })
