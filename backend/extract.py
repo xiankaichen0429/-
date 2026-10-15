@@ -198,11 +198,13 @@ def extract_file(file_path):
     if doi:
         remote = crossref_by_doi(doi)
         if remote:
+            remote["full_text"] = parsed.get("full_text", "")[:5000]
             return remote
 
     result = heuristic_result(parsed)
     if arxiv_id:
         result["arxiv"] = arxiv_id
+    result["full_text"] = parsed.get("full_text", "")[:5000]
 
     return result
 

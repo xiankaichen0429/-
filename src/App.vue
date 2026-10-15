@@ -22,6 +22,7 @@ const editingId = ref(null)
 const basket = ref([])
 const isImporting = ref(false)
 const fileInput = ref(null)
+const viewPaper = ref(null)
 
 const emptyForm = {
   title: '',
@@ -66,6 +67,11 @@ const basketPapers = computed(() => {
   return basket.value
     .map((id) => papers.value.find((paper) => paper.id === id))
     .filter(Boolean)
+})
+
+const viewPaperBasketIndex = computed(() => {
+  if (!viewPaper.value) return -1
+  return basket.value.indexOf(viewPaper.value.id)
 })
 
 function save() {
@@ -192,6 +198,7 @@ async function addFileByPath(filePath) {
     fileName: baseName(filePath),
     filePath,
     confidence: metadata.confidence || 'none',
+    fullText: metadata.full_text || metadata.fullText || '',
     createdAt: new Date().toISOString()
   })
 
@@ -304,6 +311,45 @@ function copyBibliography() {
   copyText(text)
 }
 
+function inTextCitation(paper, index) {
+  if (citationStyle.value === 'apa') {
+    const firstAuthor = authorList(paper.authors)[0] || 'Unknown'
+    return `(${firstAuthor}, ${paper.year || 'n.d.'})`
+  }
+
+  if (citationStyle.value === 'bibtex') {
+    return `\\cite{${citationKey(paper, index)}}`
+  }
+
+  return `[${index + 1}]`
+}
+
+function openReader(paper) {
+  viewPaper.value = paper
+}
+
+function ensureInBasket(paper) {
+  if (!basket.value.includes(paper.id)) {
+    basket.value.push(paper.id)
+  }
+}
+
+function copySelectedQuote() {
+  const selection = window.getSelection()?.toString().trim()
+  if (!selection) {
+    alert('请先在正文中选中要引用的段落')
+    return
+  }
+
+  const paper = viewPaper.value
+  if (!paper) return
+
+  ensureInBasket(paper)
+  const index = basket.value.indexOf(paper.id)
+  const marker = inTextCitation(paper, index)
+  copyText(`“${selection}” ${marker}`)
+}
+
 watch(papers, save, { deep: true })
 </script>
 
@@ -371,6 +417,7 @@ watch(papers, save, { deep: true })
             <button class="status" @click="cycleStatus(paper)">
               {{ statusText[paper.status] }}
             </button>
+            <button @click="openReader(paper)">阅读 / 引用</button>
             <button @click="openEdit(paper)">编辑</button>
             <button @click="toggleBasket(paper.id)">
               {{ basket.includes(paper.id) ? '移出引用篮' : '加入引用篮' }}
@@ -380,6 +427,34 @@ watch(papers, save, { deep: true })
         </article>
       </div>
     </section>
+
+    <div v-if="viewPaper" class="modal-mask" @click.self="viewPaper = null">
+      <div class="modal wide reader-modal">
+        <h2>{{ viewPaper.title }}</h2>
+
+        <p class="reader-hint">在下方正文中选中要引用的段落，然后点击“复制选中段落并引用”。</p>
+
+        <div class="reader-meta">
+          <p>
+            {{
+              viewPaperBasketIndex >= 0
+                ? `当前引用序号：${inTextCitation(viewPaper, viewPaperBasketIndex)}`
+                : '尚未加入引用篮，复制后会自动加入'
+            }}
+          </p>
+          <p v-if="viewPaperBasketIndex >= 0">
+            文末条目：{{ formatCitation(viewPaper, viewPaperBasketIndex) }}
+          </p>
+        </div>
+
+        <div class="reader-text">{{ viewPaper.fullText || '暂无正文，可以点击“编辑”补充笔记或手动粘贴段落。' }}</div>
+
+        <div class="modal-actions">
+          <button @click="viewPaper = null">关闭</button>
+          <button class="primary" @click="copySelectedQuote">复制选中段落并引用</button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="showForm" class="modal-mask" @click.self="showForm = false">
       <div class="modal">
@@ -685,6 +760,33 @@ button.primary {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 16px;
+}
+
+.reader-hint {
+  color: #6b7280;
+}
+
+.reader-meta {
+  padding: 12px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  margin: 12px 0;
+}
+
+.reader-meta p {
+  margin: 4px 0;
+}
+
+.reader-text {
+  max-height: 48vh;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 .basket-list {
