@@ -15,6 +15,7 @@ function loadPapers() {
 const papers = ref(loadPapers())
 const query = ref('')
 const statusFilter = ref('all')
+const collectionFilter = ref('all')
 const citationStyle = ref('gb-t-7714')
 const showForm = ref(false)
 const showBasket = ref(false)
@@ -35,6 +36,8 @@ const emptyForm = {
   issue: '',
   pages: '',
   doi: '',
+  tags: '',
+  collection: '',
   status: 'unread',
   notes: ''
 }
@@ -45,18 +48,27 @@ const filteredPapers = computed(() => {
   const keyword = query.value.trim().toLowerCase()
   return papers.value.filter((paper) => {
     const matchStatus = statusFilter.value === 'all' || paper.status === statusFilter.value
+    const matchCollection =
+      collectionFilter.value === 'all' || paper.collection === collectionFilter.value
     const haystack = [
       paper.title,
       paper.authors,
       paper.year,
       paper.journal,
-      paper.doi
+      paper.doi,
+      paper.fullText || '',
+      paper.collection || '',
+      Array.isArray(paper.tags) ? paper.tags.join(' ') : ''
     ]
       .join(' ')
       .toLowerCase()
     const matchKeyword = !keyword || haystack.includes(keyword)
-    return matchStatus && matchKeyword
+    return matchStatus && matchCollection && matchKeyword
   })
+})
+
+const collections = computed(() => {
+  return [...new Set(papers.value.map((paper) => paper.collection).filter(Boolean))].sort()
 })
 
 const statusText = {
@@ -92,7 +104,11 @@ function openAdd() {
 
 function openEdit(paper) {
   editingId.value = paper.id
-  Object.assign(form, paper)
+  Object.assign(form, {
+    ...paper,
+    tags: Array.isArray(paper.tags) ? paper.tags.join(', ') : paper.tags || '',
+    collection: paper.collection || ''
+  })
   showForm.value = true
 }
 
@@ -105,12 +121,23 @@ function submitForm() {
   if (editingId.value) {
     const index = papers.value.findIndex((paper) => paper.id === editingId.value)
     if (index !== -1) {
-      papers.value[index] = { ...papers.value[index], ...form }
+      papers.value[index] = {
+        ...papers.value[index],
+        ...form,
+        tags: form.tags
+          .split(/[,，、]/)
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      }
     }
   } else {
     papers.value.unshift({
       id: newId(),
       ...form,
+      tags: form.tags
+        .split(/[,，、]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
       createdAt: new Date().toISOString()
     })
   }
@@ -195,6 +222,8 @@ async function addFileByPath(filePath) {
     issue: metadata.issue || '',
     pages: metadata.pages || '',
     doi: metadata.doi || '',
+    tags: [],
+    collection: '',
     status: 'unread',
     notes: '',
     fileName: baseName(filePath),
@@ -220,6 +249,8 @@ function onImport(event) {
       issue: '',
       pages: '',
       doi: '',
+      tags: [],
+      collection: '',
       status: 'unread',
       notes: '',
       fileName: file.name,
@@ -352,6 +383,30 @@ function copySelectedQuote() {
   copyText(`“${selection}” ${marker}`)
 }
 
+function addSelectedToNotes() {
+  const selection = window.getSelection()?.toString().trim()
+  if (!selection) {
+    alert('请先在正文中选中要加入笔记的段落')
+    return
+  }
+
+  const paper = viewPaper.value
+  if (!paper) return
+
+  ensureInBasket(paper)
+  const index = basket.value.indexOf(paper.id)
+  const marker = inTextCitation(paper, index)
+  const noteLine = `> “${selection}” ${marker}`
+
+  if (paper.notes && paper.notes.trim()) {
+    paper.notes = `${paper.notes}\n\n${noteLine}`
+  } else {
+    paper.notes = noteLine
+  }
+
+  save()
+}
+
 async function openOriginal(paper) {
   if (!paper.filePath) {
     alert('这篇论文没有记录本地文件路径')
@@ -416,6 +471,21 @@ watch(papers, save, { deep: true })
         </button>
       </nav>
 
+      <div class="collection-section">
+        <h2>我的集合</h2>
+        <button :class="{ active: collectionFilter === 'all' }" @click="collectionFilter = 'all'">
+          全部集合
+        </button>
+        <button
+          v-for="collection in collections"
+          :key="collection"
+          :class="{ active: collectionFilter === collection }"
+          @click="collectionFilter = collection"
+        >
+          {{ collection }}
+        </button>
+      </div>
+
       <div class="sidebar-footer">
         <button class="primary" @click="openAdd">添加论文</button>
         <button @click="showBasket = true">
@@ -453,6 +523,10 @@ watch(papers, save, { deep: true })
               {{ paper.authors || '作者未知' }}
               <span v-if="paper.year">· {{ paper.year }}</span>
               <span v-if="paper.journal">· {{ paper.journal }}</span>
+              <span v-if="paper.collection">· 集合：{{ paper.collection }}</span>
+              <span v-if="paper.tags && paper.tags.length">
+                · 标签：{{ paper.tags.join('、') }}
+              </span>
             </p>
             <p v-if="paper.notes" class="notes-preview">{{ paper.notes }}</p>
           </div>
@@ -496,6 +570,7 @@ watch(papers, save, { deep: true })
 
         <div class="modal-actions">
           <button @click="viewPaper = null">关闭</button>
+          <button @click="addSelectedToNotes">把选中段落加入笔记</button>
           <button class="primary" @click="copySelectedQuote">复制选中段落并引用</button>
         </div>
       </div>
@@ -537,6 +612,14 @@ watch(papers, save, { deep: true })
           <label>
             DOI
             <input v-model="form.doi" placeholder="10.xxxx/yyyy" />
+          </label>
+          <label>
+            标签
+            <input v-model="form.tags" placeholder="机器学习, 综述" />
+          </label>
+          <label>
+            集合
+            <input v-model="form.collection" placeholder="毕业论文" />
           </label>
         </div>
         <label>
@@ -660,6 +743,20 @@ watch(papers, save, { deep: true })
 .sidebar button:hover,
 .sidebar button.active {
   background: #374151;
+}
+
+.collection-section {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.collection-section h2 {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0 0 4px;
+  padding-left: 12px;
 }
 
 .sidebar-footer {
