@@ -23,6 +23,8 @@ const basket = ref([])
 const isImporting = ref(false)
 const fileInput = ref(null)
 const viewPaper = ref(null)
+const manualPaperId = ref('')
+const manualQuote = ref('')
 
 const emptyForm = {
   title: '',
@@ -350,6 +352,48 @@ function copySelectedQuote() {
   copyText(`“${selection}” ${marker}`)
 }
 
+async function openOriginal(paper) {
+  if (!paper.filePath) {
+    alert('这篇论文没有记录本地文件路径')
+    return
+  }
+
+  if (!window.desktop?.openPath) {
+    alert('当前环境不支持打开本地文件')
+    return
+  }
+
+  try {
+    const errorMessage = await window.desktop.openPath(paper.filePath)
+    if (errorMessage) {
+      alert(`打开失败：${errorMessage}`)
+    }
+  } catch (error) {
+    alert(`打开失败：${error.message || error}`)
+  }
+}
+
+function copyManualQuote() {
+  const quote = manualQuote.value.trim()
+  if (!quote) {
+    alert('请先粘贴要引用的原文段落')
+    return
+  }
+
+  if (!manualPaperId.value) {
+    alert('请选择这段原文对应的论文')
+    return
+  }
+
+  const paper = papers.value.find((item) => item.id === manualPaperId.value)
+  if (!paper) return
+
+  ensureInBasket(paper)
+  const index = basket.value.indexOf(paper.id)
+  const marker = inTextCitation(paper, index)
+  copyText(`“${quote}” ${marker}`)
+}
+
 watch(papers, save, { deep: true })
 </script>
 
@@ -417,6 +461,7 @@ watch(papers, save, { deep: true })
             <button class="status" @click="cycleStatus(paper)">
               {{ statusText[paper.status] }}
             </button>
+            <button @click="openOriginal(paper)">打开原文</button>
             <button @click="openReader(paper)">阅读 / 引用</button>
             <button @click="openEdit(paper)">编辑</button>
             <button @click="toggleBasket(paper.id)">
@@ -526,6 +571,24 @@ watch(papers, save, { deep: true })
             <option value="bibtex">BibTeX</option>
           </select>
         </label>
+
+        <div class="manual-quote">
+          <h3>手动粘贴引用</h3>
+          <label>
+            选择论文
+            <select v-model="manualPaperId">
+              <option value="">请选择论文</option>
+              <option v-for="paper in papers" :key="paper.id" :value="paper.id">
+                {{ paper.title }}
+              </option>
+            </select>
+          </label>
+          <label>
+            粘贴原文段落
+            <textarea v-model="manualQuote" rows="4" placeholder="用系统默认程序打开原文后，复制段落粘贴到这里"></textarea>
+          </label>
+          <button class="primary" @click="copyManualQuote">生成并复制引用</button>
+        </div>
 
         <div v-if="!basketPapers.length" class="empty-state">
           <p>引用篮还是空的，先在论文列表中加入文献</p>
@@ -787,6 +850,18 @@ button.primary {
   line-height: 1.8;
   white-space: pre-wrap;
   user-select: text;
+}
+
+.manual-quote {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin: 16px 0;
+  background: #f9fafb;
+}
+
+.manual-quote h3 {
+  margin-top: 0;
 }
 
 .basket-list {

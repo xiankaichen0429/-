@@ -47,6 +47,10 @@ ipcMain.handle('select-paper-files', async () => {
   return result.canceled ? [] : result.filePaths
 })
 
+ipcMain.handle('open-file-path', async (_event, filePath) => {
+  return shell.openPath(filePath)
+})
+
 ipcMain.handle('extract-paper-metadata', async (_event, filePath) => {
   const script = getExtractorScript()
 
