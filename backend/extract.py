@@ -157,6 +157,101 @@ def crossref_search(title, author=""):
     return parse_crossref_message(items[0]) if items else None
 
 
+def openalex_search(title):
+    import requests
+
+    params = {
+        "search": title,
+        "per-page": 3,
+    }
+    try:
+        response = requests.get("https://api.openalex.org/works", params=params, timeout=12)
+    except requests.RequestException:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    results = response.json().get("results", [])
+    if not results:
+        return None
+
+    work = results[0]
+    authors = []
+    for authorship in work.get("authorships", []):
+        author = authorship.get("author", {})
+        name = author.get("display_name", "")
+        if name:
+            authors.append(name)
+
+    source = (work.get("primary_location") or {}).get("source") or {}
+    biblio = work.get("biblio", {})
+
+    return {
+        "title": normalize_text(work.get("title")),
+        "authors": authors,
+        "year": str(work.get("publication_year") or ""),
+        "journal": normalize_text(source.get("display_name")),
+        "volume": normalize_text(biblio.get("volume")),
+        "issue": normalize_text(biblio.get("issue")),
+        "pages": normalize_text(
+            "-".join(
+                str(value)
+                for value in (biblio.get("first_page"), biblio.get("last_page"))
+                if value is not None
+            )
+        ),
+        "doi": normalize_text(work.get("doi")),
+        "abstract": "",
+        "source": "openalex",
+        "confidence": "high",
+    }
+
+
+def semantic_scholar_search(title):
+    import requests
+
+    params = {
+        "query": title,
+        "fields": "title,authors,year,venue,externalIds,journal",
+        "limit": 3,
+    }
+    try:
+        response = requests.get(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            params=params,
+            timeout=12,
+        )
+    except requests.RequestException:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    data = response.json().get("data", [])
+    if not data:
+        return None
+
+    paper = data[0]
+    journal = (paper.get("journal") or {}).get("name")
+    if not journal:
+        journal = paper.get("venue")
+
+    return {
+        "title": normalize_text(paper.get("title")),
+        "authors": [author.get("name", "") for author in paper.get("authors", []) if author.get("name")],
+        "year": str(paper.get("year") or ""),
+        "journal": normalize_text(journal),
+        "volume": "",
+        "issue": "",
+        "pages": "",
+        "doi": normalize_text((paper.get("externalIds") or {}).get("DOI")),
+        "abstract": "",
+        "source": "semantic_scholar",
+        "confidence": "high",
+    }
+
+
 def first_meaningful_line(text):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for line in lines:
@@ -207,37 +302,85 @@ def clean_authors(values):
     return [value for value in values if value and not is_generic_author(value)]
 
 
+def is_heading_line(value):
+    return bool(
+        re.match(
+            r"^(摘要|abstract|关键词|keywords|引言|introduction|参考文献|references|目录|contents)\b",
+            value,
+            re.IGNORECASE,
+        )
+    )
+
+
+def clean_author_value(value):
+    value = re.sub(r"[\[\(（].*?[\]\)）]", " ", value)
+    value = re.sub(r"[*†‡#]+", " ", value)
+    value = re.sub(r"[\u2460-\u2473]", " ", value)
+
+    affiliation_match = re.search(
+        r"(学院|大学|实验室|实验中心|中心|研究院|研究所|邮箱|E-mail|Email|通讯作者|作者简介|研究方向|基金项目|二0|二O|20\d{2}|20\d{2}年)",
+        value,
+        re.IGNORECASE,
+    )
+    if affiliation_match:
+        value = value[: affiliation_match.start()]
+
+    return normalize_text(value)
+
+
 def extract_explicit_authors(text):
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    patterns = [
-        r"^作者(?:信息|简介)?[:：]\s*(.+)$",
-        r"^authors?\s*[:：]\s*(.+)$",
-        r"^by\s*[:：]?\s*(.+)$",
-    ]
+    lines = [line.strip() for line in text.splitlines()]
+    label_re = re.compile(
+        r"^(作者(?:信息|简介)?|authors?|by)\s*[:：]?\s*(.*)$",
+        re.IGNORECASE,
+    )
 
-    for line in lines:
-        for pattern in patterns:
-            match = re.match(pattern, line, re.IGNORECASE)
-            if not match:
-                continue
+    for index, line in enumerate(lines):
+        if not line:
+            continue
 
-            value = match.group(1).strip()
-            value = re.sub(r"[\[\(（].*?[\]\)）]", " ", value)
-            value = re.sub(r"[*†‡#\d]+", " ", value)
+        match = label_re.match(line)
+        if not match:
+            continue
 
-            affiliation_match = re.search(
-                r"(学院|大学|实验室|实验中心|中心|研究院|研究所|邮箱|E-mail|Email|通讯作者|作者简介|研究方向|二0|二O|20\d{2}|20\d{2}年)",
-                value,
-                re.IGNORECASE,
-            )
-            if affiliation_match:
-                value = value[: affiliation_match.start()]
+        value = clean_author_value(match.group(2))
+        if not value:
+            for next_line in lines[index + 1 : index + 5]:
+                if not next_line or is_heading_line(next_line):
+                    break
+                value += " " + clean_author_value(next_line)
 
-            authors = clean_authors(split_authors(value))
-            if authors:
-                return authors
+        authors = clean_authors(split_authors(value))
+        if authors:
+            return authors
 
     return []
+
+
+def extract_explicit_title(text):
+    lines = [line.strip() for line in text.splitlines()]
+    label_re = re.compile(
+        r"^(标题|题目|题名|篇名|title)\s*[:：]?\s*(.*)$",
+        re.IGNORECASE,
+    )
+
+    for index, line in enumerate(lines):
+        match = label_re.match(line)
+        if not match:
+            continue
+
+        value = match.group(2).strip()
+        if not value:
+            for next_line in lines[index + 1 : index + 4]:
+                if not next_line or is_heading_line(next_line):
+                    break
+                value += " " + next_line.strip()
+
+        value = normalize_text(value)
+        if len(value) >= 4:
+            return value
+
+    return ""
 
 
 def layout_title_and_authors(layout_lines):
@@ -289,8 +432,9 @@ def layout_title_and_authors(layout_lines):
 def heuristic_result(parsed):
     text = parsed.get("full_text", "")
     layout_title, layout_authors = layout_title_and_authors(parsed.get("layout_lines", []))
+    explicit_title = extract_explicit_title(text)
 
-    title = layout_title or parsed.get("title") or first_meaningful_line(text)
+    title = explicit_title or layout_title or parsed.get("title") or first_meaningful_line(text)
     if title.lower() in GENERIC_AUTHORS or len(title) < 4:
         title = first_meaningful_line(text)
 
@@ -340,10 +484,31 @@ def titles_match(left, right):
 
 
 def search_by_title(title, authors):
-    remote = crossref_search(title, authors[0] if authors else "")
-    if remote and titles_match(title, remote.get("title", "")):
-        return remote
-    return None
+    candidates = []
+
+    crossref = crossref_search(title, authors[0] if authors else "")
+    if crossref and titles_match(title, crossref.get("title", "")):
+        candidates.append(crossref)
+
+    openalex = openalex_search(title)
+    if openalex and titles_match(title, openalex.get("title", "")):
+        candidates.append(openalex)
+
+    semantic = semantic_scholar_search(title)
+    if semantic and titles_match(title, semantic.get("title", "")):
+        candidates.append(semantic)
+
+    if not candidates:
+        return None
+
+    def score(candidate):
+        return SequenceMatcher(
+            None,
+            normalized(title)[:100],
+            normalized(candidate.get("title", ""))[:100],
+        ).ratio()
+
+    return max(candidates, key=score)
 
 
 def extract_file(file_path):
