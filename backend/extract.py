@@ -207,6 +207,39 @@ def clean_authors(values):
     return [value for value in values if value and not is_generic_author(value)]
 
 
+def extract_explicit_authors(text):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    patterns = [
+        r"^作者(?:信息|简介)?[:：]\s*(.+)$",
+        r"^authors?\s*[:：]\s*(.+)$",
+        r"^by\s*[:：]?\s*(.+)$",
+    ]
+
+    for line in lines:
+        for pattern in patterns:
+            match = re.match(pattern, line, re.IGNORECASE)
+            if not match:
+                continue
+
+            value = match.group(1).strip()
+            value = re.sub(r"[\[\(（].*?[\]\)）]", " ", value)
+            value = re.sub(r"[*†‡#\d]+", " ", value)
+
+            affiliation_match = re.search(
+                r"(学院|大学|实验室|实验中心|中心|研究院|研究所|邮箱|E-mail|Email|通讯作者|作者简介|研究方向|二0|二O|20\d{2}|20\d{2}年)",
+                value,
+                re.IGNORECASE,
+            )
+            if affiliation_match:
+                value = value[: affiliation_match.start()]
+
+            authors = clean_authors(split_authors(value))
+            if authors:
+                return authors
+
+    return []
+
+
 def layout_title_and_authors(layout_lines):
     if not layout_lines:
         return "", []
@@ -261,7 +294,9 @@ def heuristic_result(parsed):
     if title.lower() in GENERIC_AUTHORS or len(title) < 4:
         title = first_meaningful_line(text)
 
-    authors = layout_authors or clean_authors(split_authors(parsed.get("author", "")))
+    authors = extract_explicit_authors(text)
+    if not authors:
+        authors = layout_authors or clean_authors(split_authors(parsed.get("author", "")))
     if not authors:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         title_index = next((index for index, line in enumerate(lines) if line == title), 0)
