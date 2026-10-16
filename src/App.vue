@@ -327,6 +327,32 @@ function copyText(text) {
   navigator.clipboard.writeText(text)
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+async function copyRichText(html, text) {
+  if (navigator.clipboard && window.ClipboardItem) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' })
+        })
+      ])
+      return
+    } catch {
+      // 回退到纯文本复制
+    }
+  }
+
+  navigator.clipboard.writeText(text)
+}
+
 function copyBibliography() {
   if (!basketPapers.value.length) {
     alert('请先选择论文')
@@ -336,6 +362,29 @@ function copyBibliography() {
     .map((paper, index) => formatCitation(paper, index))
     .join('\n')
   copyText(text)
+}
+
+function bibliographyHtml() {
+  const items = basketPapers.value
+    .map((paper, index) => {
+      return `<p style="margin-left:36pt; text-indent:-36pt;">${escapeHtml(
+        formatCitation(paper, index)
+      )}</p>`
+    })
+    .join('')
+  return `<div>${items}</div>`
+}
+
+async function copyBibliographyAsWord() {
+  if (!basketPapers.value.length) {
+    alert('请先选择论文')
+    return
+  }
+
+  const text = basketPapers.value
+    .map((paper, index) => formatCitation(paper, index))
+    .join('\n')
+  await copyRichText(bibliographyHtml(), text)
 }
 
 function inTextCitation(paper, index) {
@@ -397,6 +446,29 @@ function copyManualQuote() {
   const index = basket.value.indexOf(paper.id)
   const marker = inTextCitation(paper, index)
   copyText(`“${quote}” ${marker}`)
+}
+
+async function copyManualQuoteAsWord() {
+  const quote = manualQuote.value.trim()
+  if (!quote) {
+    alert('请先粘贴要引用的原文段落')
+    return
+  }
+
+  if (!manualPaperId.value) {
+    alert('请选择这段原文对应的论文')
+    return
+  }
+
+  const paper = papers.value.find((item) => item.id === manualPaperId.value)
+  if (!paper) return
+
+  ensureInBasket(paper)
+  const index = basket.value.indexOf(paper.id)
+  const marker = inTextCitation(paper, index)
+  const text = `“${quote}” ${marker}`
+  const html = `<p style="margin-left:24pt;">“${escapeHtml(quote)}” ${escapeHtml(marker)}</p>`
+  await copyRichText(html, text)
 }
 
 watch(papers, save, { deep: true })
@@ -591,6 +663,7 @@ watch(papers, save, { deep: true })
             <textarea v-model="manualQuote" rows="4" placeholder="用系统默认程序打开原文后，复制段落粘贴到这里"></textarea>
           </label>
           <button class="primary" @click="copyManualQuote">生成并复制引用</button>
+          <button @click="copyManualQuoteAsWord">复制为 Word 格式</button>
         </div>
 
         <div v-if="!basketPapers.length" class="empty-state">
@@ -616,6 +689,9 @@ watch(papers, save, { deep: true })
 
         <div class="modal-actions">
           <button @click="showBasket = false">关闭</button>
+          <button :disabled="!basketPapers.length" @click="copyBibliographyAsWord">
+            复制为 Word 格式
+          </button>
           <button class="primary" :disabled="!basketPapers.length" @click="copyBibliography">
             复制全部参考文献
           </button>
@@ -852,6 +928,10 @@ button.primary {
 
 .manual-quote h3 {
   margin-top: 0;
+}
+
+.manual-quote button {
+  margin-right: 8px;
 }
 
 .basket-list {
